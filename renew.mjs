@@ -183,8 +183,9 @@ async function findTimeText(page) {
     const remainHours = parseHours(remainText);
     console.log('[时间]', remainText, '->', remainHours.toFixed(1), 'h');
 
-    if (remainHours <= 24) {
-      console.log('[续期] 剩余 <= 1 天，点击续期...');
+    // ── 修改核心逻辑：该套餐只有在到期前 2 小时才放开续期，这里设定阈值为 2.1 小时 ──
+    if (remainHours <= 2.1) {
+      console.log('[续期] 剩余时间 <= 2.1 小时，进入续期窗口，点击续期...');
 
       // 点击续期按钮
       const btnText = await page.evaluate(() => {
@@ -199,7 +200,7 @@ async function findTimeText(page) {
         }
         return null;
       });
-      if (!btnText) throw new Error('未找到续期按钮');
+      if (!btnText) throw new Error('未找到续期按钮（已到续期时间但按钮未渲染，可能是页面DOM改变）');
       console.log('[续期] 点击:', btnText);
 
       // 等待 "Renewing..." 状态消失，然后等新时间出现
@@ -213,76 +214,4 @@ async function findTimeText(page) {
           return document.body.innerText.includes('Renewing');
         });
         if (isRenewing) {
-          console.log('[续期] 还在续期中... (' + (i + 1) + 's)');
-          continue;
-        }
-
-        // Renewing 消失了，读取新时间
-        const t = await findTimeText(page);
-        if (t) {
-          const h = parseHours(extractTimeStr(t));
-          // 新时间必须大于续期前时间，才说明续期真的生效了
-          if (h > remainHours + 1) {
-            newRemainRaw = t;
-            console.log('[续期] 完成，耗时', i + 1, '秒');
-            break;
-          }
-        }
-      }
-
-      await saveScreenshot(page, 'debug-after-renew.png');
-
-      if (!newRemainRaw) {
-        // 超时未检测到变化，直接重新加载页面获取最新时间
-        console.log('[续期] 轮询超时，刷新页面读取最新时间...');
-        await page.reload({ waitUntil: 'networkidle', timeout: 30000 });
-        await page.waitForTimeout(2000);
-        newRemainRaw = await findTimeText(page);
-        await saveScreenshot(page, 'debug-after-renew.png');
-      }
-
-      const newText  = newRemainRaw ? extractTimeStr(newRemainRaw) : '未知';
-      const newHours = parseHours(newText);
-      const newDays  = Math.floor(newHours / 24);
-      const newHrs   = Math.floor(newHours % 24);
-      console.log('[续期后]', newText, '->', newHours.toFixed(1), 'h');
-
-      await tgNotify(
-        'ACLClouds 续期成功\n\n' +
-        '服务器: ' + SERVER_ID + '\n' +
-        '续期前: ' + remainText.trim() + '\n' +
-        '续期后: ' + newDays + ' 天 ' + newHrs + ' 小时\n\n' +
-        '时间: ' + new Date().toISOString()
-      );
-
-    } else {
-      const d = Math.floor(remainHours / 24);
-      const h = Math.floor(remainHours % 24);
-      console.log('[跳过] 剩余', d, '天', h, '小时，无需续期');
-      await tgNotify(
-        'ACLClouds 无需续期\n\n' +
-        '服务器: ' + SERVER_ID + '\n' +
-        '当前剩余: ' + d + ' 天 ' + h + ' 小时（大于 1 天，跳过）\n\n' +
-        '时间: ' + new Date().toISOString()
-      );
-    }
-
-  } catch (err) {
-    console.error('[错误]', err.message);
-    if (browser) {
-      try {
-        const pg = browser.contexts()[0]?.pages()?.[0];
-        if (pg) await saveScreenshot(pg, 'error-screenshot.png');
-      } catch (_) {}
-    }
-    await tgNotify(
-      'ACLClouds 续期失败\n\n' +
-      '服务器: ' + (SERVER_ID || '未设置') + '\n' +
-      '错误: ' + err.message.slice(0, 200) + '\n\n' +
-      '时间: ' + new Date().toISOString()
-    );
-    process.exit(1);
-  } finally {
-    if (browser) await browser.close();
-  }
-})();
+          console.log('[续期] 还在续期
